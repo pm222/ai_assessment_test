@@ -1,5 +1,8 @@
-import tensorflow as tf
+import numpy as np
+np.random.seed(42)
 
+import tensorflow as tf
+tf.random.set_seed(42)
 from tensorflow.keras import datasets, layers, models
 from tensorflow.keras.models import Sequential
 from tensorflow.keras.layers import Dense,Dropout,Flatten,Conv2D,MaxPooling2D
@@ -10,20 +13,40 @@ from tensorflow.keras.layers import Activation
 
 
 from sklearn.metrics import confusion_matrix,accuracy_score,balanced_accuracy_score
+from sklearn.utils import class_weight
+
 import numpy as np
 import pickle
+from pathlib import Path
 
 
 def save_history(name,data):
-    with open(f'{name}.pickle', 'wb') as handle:
+    with open(Path(f'trained_models/{name}.pickle').as_posix(), 'wb') as handle:
         pickle.dump(data, handle, protocol=pickle.HIGHEST_PROTOCOL)
 
-def train_model(model, train_x, train_y, validation_x, validation_y, epochs=100, batch_size=16,verbose=1):
-    callback = tf.keras.callbacks.EarlyStopping(monitor='val_accuracy', patience=8, restore_best_weights=True)
+def save_model(name, model):
+    model.save(Path(f'trained_models/{name}').as_posix())
+
+def train_model(model,model_name, train_x, train_y, validation_x, validation_y, epochs=100, batch_size=16,verbose=1):
+    y = np.argmax(train_y, axis=1)
+    class_weights = class_weight.compute_class_weight(class_weight='balanced',
+                                                      classes=np.unique(y),
+                                                      y=y)
+    class_weights = { i:j for i, j in enumerate(class_weights)}
+
+    best_checkpoint_path = Path(f'trained_models/checkpoints/{model_name}.hdf5')
+    et_callback = tf.keras.callbacks.EarlyStopping(monitor='val_accuracy', patience=15, restore_best_weights=True)
+    model_checkpoint_callback = tf.keras.callbacks.ModelCheckpoint(
+            filepath=best_checkpoint_path,
+            save_weights_only=True,
+            monitor='val_accuracy',
+            mode='max',
+            save_best_only=True)
 
     history = model.fit(train_x, train_y, epochs=epochs,batch_size=batch_size, 
-                    validation_data=(validation_x, validation_y),shuffle=True,callbacks=[callback], verbose=verbose)
+                    validation_data=(validation_x, validation_y),shuffle=True,callbacks=[et_callback,model_checkpoint_callback], verbose=verbose, class_weight=class_weights)
 
+    model.load_weights(best_checkpoint_path)
     return model, history.history
 
 def print_class_counts(labels):
